@@ -27,11 +27,12 @@ import re
 import time
 import struct
 import ctypes
-import xxhash
 import logging
+import socket
+import os
 
 from json import JSONEncoder
-from binascii import unhexlify
+from binascii import unhexlify, hexlify
 
 # other stuff
 from google.protobuf.internal import encoder
@@ -40,9 +41,12 @@ from s2sphere import LatLng, Angle, Cap, RegionCoverer, math
 
 log = logging.getLogger(__name__)
 
-HASH_SEED = 0x61656632  # static hash seed from app
+HASH_SEED = 0x61247FBF  # static hash seed from app
 EARTH_RADIUS = 6371000  # radius of Earth in meters
 
+_nhash = ctypes.cdll.LoadLibrary(os.path.join(os.path.dirname(os.path.realpath(__file__)), "lib/libniantichash-linux-x86-64.so"))
+_nhash.compute_hash.argtypes = (ctypes.POINTER(ctypes.c_ubyte), ctypes.c_uint32)
+_nhash.compute_hash.restype = ctypes.c_uint64
 
 def f2i(float):
     return struct.unpack('<Q', struct.pack('<d', float))[0]
@@ -55,6 +59,10 @@ def f2h(float):
 def h2f(hex):
     return struct.unpack('<d', struct.pack('<Q', int(hex, 16)))[0]
 
+def d2h(f):
+    hex_str = f2h(f)[2:].replace('L','')
+    hex_str = ("0" * (len(hex_str) % 2)) + hex_str
+    return unhexlify(hex_str)
 
 def to_camel_case(value):
     return ''.join(word.capitalize() if word else '_' for word in value.split('_'))
@@ -77,17 +85,15 @@ def get_pos_by_name(location_name):
 
     return (loc.latitude, loc.longitude, loc.altitude)
 
-def get_cell_ids(lat, long, radius=1000):
-    # Max values allowed by server according to this comment:
-    # https://github.com/AeonLucid/POGOProtos/issues/83#issuecomment-235612285
-    if radius > 1500:
-        radius = 1500  # radius = 1500 is max allowed by the server
+def get_cell_ids(lat, long, radius=500):
+    if radius > 500:
+        radius = 500
     region = Cap.from_axis_angle(LatLng.from_degrees(lat, long).to_point(), Angle.from_degrees(360*radius/(2*math.pi*EARTH_RADIUS)))
     coverer = RegionCoverer()
     coverer.min_level = 15
     coverer.max_level = 15
     cells = coverer.get_covering(region)
-    cells = cells[:100]  # len(cells) = 100 is max allowed by the server
+    cells = cells[:21]
     return sorted([x.id() for x in cells])
 
 
@@ -173,25 +179,52 @@ def long_to_bytes(val, endianness='big'):
 
 
 def generate_location_hash_by_seed(authticket, lat, lng, acc=5):
-    first_hash = xxhash.xxh32(authticket, seed=HASH_SEED).intdigest()
+    first_hash = hash32(authticket, seed=HASH_SEED)
     location_bytes = d2h(lat) + d2h(lng) + d2h(acc)
-    loc_hash = xxhash.xxh32(location_bytes, seed=first_hash).intdigest()
+    loc_hash = loc_hash = hash32(location_bytes, seed=first_hash)
     return ctypes.c_int32(loc_hash).value
 
 
 def generate_location_hash(lat, lng, acc=5):
     location_bytes = d2h(lat) + d2h(lng) + d2h(acc)
-    loc_hash = xxhash.xxh32(location_bytes, seed=HASH_SEED).intdigest()
+    loc_hash = loc_hash = hash32(location_bytes, seed=HASH_SEED)
     return ctypes.c_int32(loc_hash).value
 
 
 def generate_request_hash(authticket, request):
-    first_hash = xxhash.xxh64(authticket, seed=HASH_SEED).intdigest()
-    req_hash = xxhash.xxh64(request, seed=first_hash).intdigest()
+    first_hash = hash64salt32(authticket, seed=HASH_SEED)
+    req_hash = hash64salt64(request, seed=first_hash)
     return ctypes.c_int64(req_hash).value
-
 
 def d2h(f):
     hex_str = f2h(f)[2:].replace('L', '')
     hex_str = ("0" * (len(hex_str) % 2)) + hex_str
     return unhexlify(hex_str)
+	
+def hash64salt32(buf, seed):
+    buf = struct.pack(">I", seed) + buf
+    return calcHash(buf)
+    
+def hash64salt64(buf, seed):
+    buf = struct.pack(">Q", seed) + buf
+    return calcHash(buf)
+    
+def hash32(buf, seed):
+    buf = struct.pack(">I", seed) + buf
+    hash64 = calcHash(buf)
+    signedhash64 = ctypes.c_int64(hash64)
+    return ctypes.c_uint(signedhash64.value).value ^ ctypes.c_uint(signedhash64.value >> 32).value
+
+def calcHash(buf):
+    global _nhash
+
+    #buf = b"\x61\x24\x7f\xbf\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00" 
+    buf = list(bytearray(buf))
+    #print buf
+    num_bytes = len(buf)
+    array_type = ctypes.c_ubyte * num_bytes
+
+    data = _nhash.compute_hash(array_type(*buf), ctypes.c_uint32(num_bytes));
+
+    #print data
+    return ctypes.c_uint64(data).value

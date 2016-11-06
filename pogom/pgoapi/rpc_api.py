@@ -34,13 +34,12 @@ import logging
 import requests
 import subprocess
 import six
+import binascii
+import ctypes
 
 from google.protobuf import message
 
 from importlib import import_module
-
-
-import ctypes
 
 from .protobuf_to_dict import protobuf_to_dict
 from .exceptions import NotLoggedInException, ServerBusyOrOfflineException, ServerSideRequestThrottlingException, ServerSideAccessForbiddenException, UnexpectedResponseException, AuthTokenExpiredException, ServerApiEndpointRedirectException
@@ -78,6 +77,8 @@ class RpcApi:
 
         # data fields for unknown6
         self.session_hash = os.urandom(32)
+        self.token2 = random.randint(1,59)
+        self.course = random.uniform(0, 360)
 
         self.device_info = device_info
 
@@ -210,7 +211,64 @@ class RpcApi:
             sig.field22 = self.session_hash
             sig.epoch_timestamp_ms = get_time(ms=True)
             sig.timestamp_ms_since_start = get_time(ms=True) - RpcApi.START_TIME
+            if sig.timestamp_ms_since_start < 5000:
+                sig.timestamp_ms_since_start = random.randint(5000, 8000)
 
+            loc = sig.location_updates.add()
+            sen = sig.sensor_updates.add()
+
+            sen.timestamp = random.randint(sig.timestamp_ms_since_start - 5000, sig.timestamp_ms_since_start - 100)
+            loc.timestamp_ms = random.randint(sig.timestamp_ms_since_start - 30000, sig.timestamp_ms_since_start - 1000)
+
+            loc.name = random.choice(('network', 'network', 'network', 'network', 'fused'))
+            loc.latitude = request.latitude
+            loc.longitude = request.longitude
+
+            if not altitude:
+                loc.altitude = random.triangular(300, 400, 350)
+            else:
+                loc.altitude = altitude
+
+            if random.random() > .95:
+                # no reading for roughly 1 in 20 updates
+                loc.device_course = -1
+                loc.device_speed = -1
+            else:
+                self.course = random.triangular(0, 360, self.course)
+                loc.device_course = self.course
+                loc.device_speed = random.triangular(0.2, 4.25, 1)
+
+            loc.provider_status = 3
+            loc.location_type = 1
+            if request.accuracy >= 65:
+                loc.vertical_accuracy = random.triangular(35, 100, 65)
+                loc.horizontal_accuracy = random.choice((request.accuracy, 65, 65, random.uniform(66,80), 200))
+            else:
+                if request.accuracy > 10:
+                    loc.vertical_accuracy = random.choice((24, 32, 48, 48, 64, 64, 96, 128))
+                else:
+                    loc.vertical_accuracy = random.choice((3, 4, 6, 6, 8, 12, 24))
+                loc.horizontal_accuracy = request.accuracy
+
+            sen.acceleration_x = random.triangular(-3, 1, 0)
+            sen.acceleration_y = random.triangular(-2, 3, 0)
+            sen.acceleration_z = random.triangular(-4, 2, 0)
+            sen.magnetic_field_x = random.triangular(-50, 50, 0)
+            sen.magnetic_field_y = random.triangular(-60, 50, -5)
+            sen.magnetic_field_z = random.triangular(-60, 40, -30)
+            sen.magnetic_field_accuracy = random.choice((-1, 1, 1, 2, 2, 2, 2))
+            sen.attitude_pitch = random.triangular(-1.5, 1.5, 0.2)
+            sen.attitude_yaw = random.uniform(-3, 3)
+            sen.attitude_roll = random.triangular(-2.8, 2.5, 0.25)
+            sen.rotation_rate_x = random.triangular(-6, 4, 0)
+            sen.rotation_rate_y = random.triangular(-5.5, 5, 0)
+            sen.rotation_rate_z = random.triangular(-5, 3, 0)
+            sen.gravity_x = random.triangular(-1, 1, 0.15)
+            sen.gravity_y = random.triangular(-1, 1, -.2)
+            sen.gravity_z = random.triangular(-1, .7, -0.8)
+            sen.status = 3
+
+            sig.field25 = ctypes.c_uint64(-8408506833887075802).value
             if self.device_info:
                 for key in self.device_info:
                     setattr(sig.device_info, key, self.device_info[key])
@@ -218,7 +276,7 @@ class RpcApi:
             signal_agglom_proto = sig.SerializeToString()
 
             sig_request = SendEncryptedSignatureRequest()
-            sig_request.encrypted_signature = self._generate_signature(signal_agglom_proto)
+            sig_request.encrypted_signature = self._generate_signature(signal_agglom_proto, sig.timestamp_ms_since_start)
             plat = request.platform_requests.add()
             plat.type = 6
             plat.request_message = sig_request.SerializeToString()
@@ -229,20 +287,17 @@ class RpcApi:
 
         return request
 
-    def _generate_signature(self, signature_plain, lib_path="encrypt.so"):
+    def _generate_signature(self, signature_plain, iv, lib_path="encrypt.so"):
         if self._signature_lib is None:
             self.activate_signature(lib_path)
-        self._signature_lib.argtypes = [ctypes.c_char_p, ctypes.c_size_t, ctypes.c_char_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_ubyte), ctypes.POINTER(ctypes.c_size_t)]
+        self._signature_lib.argtypes = [ctypes.c_char_p, ctypes.c_size_t, ctypes.c_char_p, ctypes.POINTER(ctypes.POINTER(ctypes.c_ubyte))]
         self._signature_lib.restype = ctypes.c_int
 
-        iv = os.urandom(32)
-
-        output_size = ctypes.c_size_t()
-
-        self._signature_lib.encrypt(signature_plain, len(signature_plain), iv, 32, None, ctypes.byref(output_size))
-        output = (ctypes.c_ubyte * output_size.value)()
-        self._signature_lib.encrypt(signature_plain, len(signature_plain), iv, 32, ctypes.byref(output), ctypes.byref(output_size))
-        signature = b''.join(list(map(lambda x: six.int2byte(x), output)))
+        rounded_size = len(signature_plain) + (256 - (len(signature_plain) % 256));
+        total_size = rounded_size + 5;
+        output = ctypes.POINTER(ctypes.c_ubyte * total_size)()
+        output_size = self._signature_lib.encrypt(signature_plain, len(signature_plain), iv, ctypes.byref(output))
+        signature = b''.join(list(map(lambda x: six.int2byte(x), output.contents)))
         return signature
 
     def _build_sub_requests(self, mainrequest, subrequest_list):
