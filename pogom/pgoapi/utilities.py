@@ -44,7 +44,7 @@ log = logging.getLogger(__name__)
 HASH_SEED = 0x61247FBF  # static hash seed from app
 EARTH_RADIUS = 6371000  # radius of Earth in meters
 
-_nhash = ctypes.cdll.LoadLibrary(os.path.join(os.path.dirname(os.path.realpath(__file__)), "lib/libniantichash-x86-64.so"))
+_nhash = ctypes.cdll.LoadLibrary(os.path.join(os.path.dirname(os.path.realpath(__file__)), "lib/libniantichash-linux-x86-64.so"))
 _nhash.compute_hash.argtypes = (ctypes.POINTER(ctypes.c_ubyte), ctypes.c_uint32)
 _nhash.compute_hash.restype = ctypes.c_uint64
 
@@ -176,6 +176,7 @@ def long_to_bytes(val, endianness='big'):
         s = s[::-1]
 
     return s
+
 
 def generate_location_hash_by_seed(authticket, lat, lng, acc=5):
     first_hash = hash32(authticket, seed=HASH_SEED)
