@@ -54,33 +54,33 @@ def get_encryption_lib_path():
     # win32 doesn't mean necessarily 32 bits
     if sys.platform == "win32" or sys.platform == "cygwin":
         if platform.architecture()[0] == '64bit':
-            lib_name = "encrypt64bit.dll"
+            lib_name = "niantichash64.dll"
         else:
-            lib_name = "encrypt32bit.dll"
+            lib_name = "libniantichash32.dll"
 
     elif sys.platform == "darwin":
-        lib_name = "libencrypt-osx-64.so"
+        lib_name = "libniantichash-osx-64.so"
 
     elif os.uname()[4].startswith("arm") and platform.architecture()[0] == '32bit':
-        lib_name = "libencrypt-linux-arm-32.so"
+        lib_name = "libniantichash-linux-arm-32.so"
 
     elif os.uname()[4].startswith("aarch64") and platform.architecture()[0] == '64bit':
-        lib_name = "libencrypt-linux-arm-64.so"
+        lib_name = "libniantichash-linux-arm-64.so"
 
     elif sys.platform.startswith('linux'):
         if "centos" in platform.platform():
             if platform.architecture()[0] == '64bit':
-                lib_name = "libencrypt-centos-x86-64.so"
+                lib_name = "libniantichash-centos-x86-64.so"
             else:
-                lib_name = "libencrypt-linux-x86-32.so"
+                lib_name = "libniantichash-linux-x86-32.so"
         else:
             if platform.architecture()[0] == '64bit':
-                lib_name = "libencrypt-linux-x86-64.so"
+                lib_name = "libniantichash-linux-x86-64.so"
             else:
-                lib_name = "libencrypt-linux-x86-32.so"
+                lib_name = "libniantichash-linux-x86-32.so"
 
     elif sys.platform.startswith('freebsd'):
-        lib_name = "libencrypt-freebsd-64.so"
+        lib_name = "libniantichash-freebsd-64.so"
 
     else:
         err = "Unexpected/unsupported platform '{}'".format(sys.platform)
