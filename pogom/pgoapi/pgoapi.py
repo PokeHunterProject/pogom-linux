@@ -34,7 +34,7 @@ import math
 from threading import Thread
 from Queue import Queue, PriorityQueue
 
-from . import __title__, __version__, __copyright__
+from . import __title__, __version__, __copyright__, __patchedBy__
 from .rpc_api import RpcApi
 from .auth_ptc import AuthPtc
 from .auth_google import AuthGoogle
@@ -57,7 +57,7 @@ class PGoApi:
         self._api_endpoint = 'https://pgorelease.nianticlabs.com/plfe/rpc'
 
         self.log.info('%s v%s - %s', __title__, __version__, __copyright__)
-        self.log.info('%s v%s - %s',__patchedBy__)
+        self.log.info('%s',__patchedBy__)
 
     def create_workers(self, num_workers):
         for i in xrange(num_workers):
