@@ -35,7 +35,7 @@ __version__ = '1.1.7'
 __author__ = 'tjado'
 __license__ = 'MIT License'
 __copyright__ = 'Copyright (c) 2016 tjado <https://github.com/tejado>'
-__patchedBy__ = 'Patched for 0.43.3 by the PokeHunter Project <https://github.com/PokeHunterProject>'
+__patchedBy__ = 'Patched for 0.45.0 by the PokeHunter Project <https://github.com/PokeHunterProject>'
 
 protobuf_exist = False
 protobuf_version = "0"
